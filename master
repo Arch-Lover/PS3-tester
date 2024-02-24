@@ -1,0 +1,130 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <libspe2.h>
+#include <pthread.h>
+
+#define NUM_SPES 7 // Number of Synergistic Processing Elements (SPEs)
+
+typedef struct {
+    spe_context_ptr_t spe;
+    spe_program_handle_t *program;
+    spe_stop_info_t stop_info;
+    int task_id; // Task identifier for each SPE
+    pthread_mutex_t mutex; // Mutex for synchronization
+    // Add any additional variables needed for communication or data transfer
+} spe_context_info;
+
+// Simulating different and complex tasks for each SPE
+void distributeTasks(spe_context_info spe_info[], int num_tasks) {
+    for (int i = 0; i < NUM_SPES && i < num_tasks; ++i) {
+        spe_info[i].task_id = i; // Assigning a unique task ID to each SPE
+
+        // Simulate complex computations for each SPE
+        // For demonstration purposes, just printing the task for each SPE
+        printf("Complex Task assigned to SPE %d (Task ID: %d)\n", i, spe_info[i].task_id);
+
+        // Here, you would send specific data or instructions based on the task each SPE should execute
+        // Add your complex task distribution logic here
+    }
+}
+
+void *exchangeData(void *arg) {
+    spe_context_info *spe_info = (spe_context_info *)arg;
+
+    char message[64];
+    sprintf(message, "Data from main program to SPE %d (Task ID: %d)", spe_info->task_id, spe_info->task_id);
+
+    // Simulate sending complex data from main program to SPE
+    // For demonstration purposes, just printing the data sent to each SPE
+    printf("Sending complex data to SPE %d: %s\n", spe_info->task_id, message);
+
+    // Here, you would use spe_context_write() or other mechanisms to send data to the SPEs
+    // Add your complex data transfer logic here
+
+    // Simulate some processing time for data transmission
+    usleep(1000);
+
+    // Lock mutex to simulate synchronization point
+    pthread_mutex_lock(&spe_info->mutex);
+
+    // Simulate receiving data from SPE to the main program
+    // For demonstration purposes, just printing the data received from each SPE
+    sprintf(message, "Data from SPE %d to main program (Task ID: %d)", spe_info->task_id, spe_info->task_id);
+    printf("Received complex data from SPE %d: %s\n", spe_info->task_id, message);
+
+    // Here, you would use spe_context_receive() or other mechanisms to receive data from the SPEs
+    // Add your complex data reception logic here
+
+    // Unlock mutex to signal completion
+    pthread_mutex_unlock(&spe_info->mutex);
+
+    return NULL;
+}
+
+int main() {
+    spe_context_info spe_info[NUM_SPES];
+    pthread_t threads[NUM_SPES];
+
+    // Initialize SPE contexts and start execution
+    for (int i = 0; i < NUM_SPES; ++i) {
+        spe_info[i].spe = spe_context_create(SPE_EVENTS_ENABLE, NULL);
+        if (!spe_info[i].spe) {
+            perror("Failed to create SPE context");
+            exit(1);
+        }
+
+        spe_info[i].program = spe_image_open("sample_program");
+        if (!spe_info[i].program) {
+            perror("Failed to open SPE program");
+            exit(1);
+        }
+
+        if (spe_program_load(spe_info[i].spe, spe_info[i].program) != 0) {
+            perror("Failed to load SPE program");
+            exit(1);
+        }
+
+        if (spe_context_run(spe_info[i].spe, NULL, 0, NULL, NULL, &spe_info[i].stop_info) < 0) {
+            perror("Failed to start SPE execution");
+            exit(1);
+        }
+
+        // Initialize mutex for each SPE
+        if (pthread_mutex_init(&spe_info[i].mutex, NULL) != 0) {
+            perror("Failed to initialize mutex");
+            exit(1);
+        }
+    }
+
+    // Distribute complex tasks among SPEs
+    distributeTasks(spe_info, NUM_SPES);
+
+    // Exchange complex data between main program and SPEs
+    for (int i = 0; i < NUM_SPES; ++i) {
+        if (pthread_create(&threads[i], NULL, exchangeData, (void *)&spe_info[i]) != 0) {
+            perror("Failed to create thread");
+            exit(1);
+        }
+    }
+
+    // Wait for all SPEs to complete and synchronize
+    for (int i = 0; i < NUM_SPES; ++i) {
+        if (pthread_join(threads[i], NULL) != 0) {
+            perror("Failed while waiting for thread completion");
+            exit(1);
+        }
+    }
+
+    // Cleanup: Destroy SPE contexts and close programs
+    for (int i = 0; i < NUM_SPES; ++i) {
+        if (spe_context_destroy(spe_info[i].spe) != 0) {
+            perror("Failed to destroy SPE context");
+            exit(1);
+        }
+
+        spe_image_close(spe_info[i].program);
+        pthread_mutex_destroy(&spe_info[i].mutex);
+    }
+
+    return 0;
+}
